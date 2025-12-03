@@ -1,0 +1,196 @@
+version: '3.9'
+
+# ============================================================================
+# MERN Stack Docker Compose - Production Environment
+# ============================================================================
+# Usage: docker-compose -f docker-compose.prod.yaml up --build -d
+# Services: MongoDB, Express Backend, React Frontend with Nginx
+# Ports: MongoDB (27019), Backend (5002), Frontend (80/8443)
+# ============================================================================
+
+services:
+  # ========================================================================
+  # MongoDB Database Service - Production
+  # ========================================================================
+  mongodb-prod:
+    image: mongo:7.0.4-alpine
+    container_name: mern-mongodb-prod
+    hostname: mongodb-prod.local
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-prod_admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-change_me_production_password}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME:-mern_production_db}
+    ports:
+      - "27019:27017"
+    volumes:
+      # Named volume for persistent data
+      - mern-mongodb-prod-data:/data/db
+      - mern-mongodb-prod-config:/data/configdb
+    networks:
+      mern-prod-network:
+        aliases:
+          - mongodb-prod
+          - mongodb-prod.local
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    security_opt:
+      - no-new-privileges:true
+
+  # ========================================================================
+  # Express Backend API Service - Production
+  # ========================================================================
+  backend-api-prod:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        NODE_ENV: production
+    image: mern/backend-api:prod-latest
+    container_name: mern-backend-api-prod
+    hostname: backend-api-prod.local
+    restart: always
+    depends_on:
+      mongodb-prod:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGODB_URI: mongodb://${MONGO_ROOT_USER:-prod_admin}:${MONGO_ROOT_PASSWORD:-change_me_production_password}@mongodb-prod:27017/${MONGO_DB_NAME:-mern_production_db}?authSource=admin
+      LOG_LEVEL: warn
+      LOG_DIR: ./logs
+      CORS_ORIGIN: https://yourdomain.com
+      API_PREFIX: /api
+    ports:
+      - "5002:5000"
+    volumes:
+      # Named volumes for application (read-only)
+      - mern-backend-prod-node_modules:/app/node_modules:ro
+      - mern-backend-prod-logs:/app/logs
+    networks:
+      mern-prod-network:
+        aliases:
+          - backend-api-prod
+          - backend-api-prod.local
+          - backend-api
+    healthcheck:
+      test: curl -f http://localhost:5000/health || exit 1
+      interval: 60s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only_rootfs: false
+
+  # ========================================================================
+  # React Frontend Service - Production with Nginx
+  # ========================================================================
+  frontend-web-prod:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        NODE_ENV: production
+    image: mern/frontend-web:prod-latest
+    container_name: mern-frontend-web-prod
+    hostname: frontend-web-prod.local
+    restart: always
+    depends_on:
+      - backend-api-prod
+    environment:
+      NODE_ENV: production
+      REACT_APP_API_URL: https://api.yourdomain.com
+      REACT_APP_API_PREFIX: /api
+    ports:
+      - "80:8080"
+      - "8443:8080"
+    volumes:
+      # Named volumes for nginx cache and logs
+      - mern-frontend-prod-cache:/var/cache/nginx:ro
+      - mern-frontend-prod-logs:/var/log/nginx
+    networks:
+      mern-prod-network:
+        aliases:
+          - frontend-web-prod
+          - frontend-web-prod.local
+    healthcheck:
+      test: wget --quiet --tries=1 --spider http://localhost:8080 || exit 1
+      interval: 60s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+      - NET_RAW
+    cap_add:
+      - NET_BIND_SERVICE
+
+# ============================================================================
+# Named Volumes - Production
+# ============================================================================
+volumes:
+  mern-mongodb-prod-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/mongodb/production
+  mern-mongodb-prod-config:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/mongodb/production/config
+  mern-backend-prod-node_modules:
+    driver: local
+  mern-backend-prod-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./backend/logs/production
+  mern-frontend-prod-cache:
+    driver: local
+  mern-frontend-prod-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./frontend/logs/production
+
+# ============================================================================
+# Networks - Production
+# ============================================================================
+networks:
+  mern-prod-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16

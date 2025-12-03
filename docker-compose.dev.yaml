@@ -1,0 +1,180 @@
+services:
+  # ========================================================================
+  # MongoDB Database Service
+  # ========================================================================
+  
+
+# ============================================================================
+# MERN Stack Docker Compose - Development Environment
+# ============================================================================
+# Usage: docker-compose -f docker-compose.dev.yaml up --build
+# Services: MongoDB, Express Backend, React Frontend
+# Ports: MongoDB (27017), Backend (5000), Frontend (3000)
+# ============================================================================
+  mongodb-dev:
+    image: mongo:7.0.4-alpine
+    container_name: mern-mongodb-dev
+    hostname: mongodb-dev.local
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-dev_password}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME:-mern_dev_db}
+    ports:
+      - "27017:27017"
+    volumes:
+      # Named volume for persistent data
+      - mern-mongodb-dev-data:/data/db
+      - mern-mongodb-dev-config:/data/configdb
+      # Initialization script (optional)
+      # - ./backend/scripts/init-db.js:/docker-entrypoint-initdb.d/init.js
+    networks:
+      mern-dev-network:
+        aliases:
+          - mongodb-dev
+          - mongodb-dev.local
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================================================
+  # Express Backend API Service
+  # ========================================================================
+  backend-api-dev:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+      args:
+        NODE_ENV: development
+    image: mern/backend-api:dev-latest
+    container_name: mern-backend-api-dev
+    hostname: backend-api-dev.local
+    restart: unless-stopped
+    depends_on:
+      mongodb-dev:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      MONGODB_URI: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASSWORD:-dev_password}@mongodb-dev:27017/${MONGO_DB_NAME:-mern_dev_db}?authSource=admin
+      LOG_LEVEL: debug
+      LOG_DIR: ./logs
+      CORS_ORIGIN: http://localhost:3000
+      API_PREFIX: /api
+    ports:
+      - "5000:5000"
+    volumes:
+      # Bind mount source code for development (hot reload)
+      - ./backend:/app
+      # Named volume for node_modules to avoid sync issues
+      - mern-backend-dev-node_modules:/app/node_modules
+      # Named volume for logs
+      - mern-backend-dev-logs:/app/logs
+    networks:
+      mern-dev-network:
+        aliases:
+          - backend-api-dev
+          - backend-api-dev.local
+          - backend-api
+    healthcheck:
+      test: curl -f http://localhost:5000/health || exit 1
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================================================
+  # React Frontend Service
+  # ========================================================================
+  frontend-web-dev:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+      args:
+        NODE_ENV: development
+    image: mern/frontend-web:dev-latest
+    container_name: mern-frontend-web-dev
+    hostname: frontend-web-dev.local
+    restart: unless-stopped
+    depends_on:
+      - backend-api-dev
+    environment:
+      NODE_ENV: development
+      REACT_APP_API_URL: http://backend-api-dev:5000
+      REACT_APP_API_PREFIX: /api
+    ports:
+      - "3000:3000"
+    volumes:
+      # Bind mount source code for development (hot reload)
+      - ./frontend:/app
+      # Named volume for node_modules to avoid sync issues
+      - mern-frontend-dev-node_modules:/app/node_modules
+      # Don't bind mount build folder during development
+      - /app/build
+    networks:
+      mern-dev-network:
+        aliases:
+          - frontend-web-dev
+          - frontend-web-dev.local
+    healthcheck:
+      test: wget --quiet --tries=1 --spider http://localhost:3000 || exit 1
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ============================================================================
+# Named Volumes - Development
+# ============================================================================
+volumes:
+  mern-mongodb-dev-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/mongodb/dev
+  mern-mongodb-dev-config:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/mongodb/dev/config
+  mern-backend-dev-node_modules:
+    driver: local
+  mern-backend-dev-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./backend/logs
+  mern-frontend-dev-node_modules:
+    driver: local
+
+# ============================================================================
+# Networks - Development
+# ============================================================================
+networks:
+  mern-dev-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
