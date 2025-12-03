@@ -3,9 +3,9 @@ import React from "react";
 export default class AddTodo extends React.Component {
   handleSubmit = (e) => {
     e.preventDefault();
-    const { value } = e.target.elements.value;
-    if (value.length > 0) {
-      this.props.handleAddTodo(value);
+    const input = e.target.elements.value;
+    if (input && input.value && input.value.trim().length > 0) {
+      this.props.handleAddTodo(input.value.trim());
       e.target.reset();
     }
   };

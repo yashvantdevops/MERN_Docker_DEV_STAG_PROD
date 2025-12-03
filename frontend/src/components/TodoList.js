@@ -9,21 +9,20 @@ export default class TodoList extends React.Component {
     };
   }
 
-  handleActive(index) {
+  handleActive = (index) => {
     this.setState({
       activeIndex: index,
     });
-  }
+  };
 
-  renderTodos(todos) {
+  renderTodos = (todos) => {
     return (
       <ul className="list-group">
         {todos.map((todo, i) => (
           <li
-            className={
-              "list-group-item cursor-pointer " +
-              (i === this.state.activeIndex ? "active" : "")
-            }
+            className={`list-group-item cursor-pointer ${
+              i === this.state.activeIndex ? "active" : ""
+            }`}
             key={i}
             onClick={() => {
               this.handleActive(i);
@@ -34,10 +33,10 @@ export default class TodoList extends React.Component {
         ))}
       </ul>
     );
-  }
+  };
 
   render() {
-    let { todos } = this.props;
+    const { todos } = this.props;
     return todos.length > 0 ? (
       this.renderTodos(todos)
     ) : (

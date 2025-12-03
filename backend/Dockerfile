@@ -5,14 +5,11 @@
 # ============================================================================
 # BASE STAGE - Common dependencies (Debian based)
 # ============================================================================
-# Using 'node:24-bookworm' (Debian 12) for a stable, standard "core" environment
 FROM node:24-bookworm AS base
 LABEL maintainer="MERN Stack Team"
 LABEL version="2.1-core"
 LABEL description="Express.js Backend - Standard Debian Build"
 
-# Install essential packages using apt-get (Debian package manager)
-# dumb-init is critical for proper signal handling in PID 1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
     curl \
@@ -21,7 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
 
 # ============================================================================
@@ -39,10 +35,8 @@ LABEL stage="development"
 ENV NODE_ENV=development
 ENV PORT=5000
 
-# Copy entire project
 COPY . .
 
-# Install nodemon globally
 RUN npm install -g nodemon
 
 EXPOSE 5000
@@ -61,10 +55,8 @@ LABEL stage="staging"
 ENV NODE_ENV=staging
 ENV PORT=5000
 
-# Install production dependencies only
 RUN npm ci --omit=dev --verbose
 
-# Copy application code
 COPY . .
 
 EXPOSE 5000
@@ -79,15 +71,12 @@ CMD ["node", "server.js"]
 # ============================================================================
 # PRODUCTION STAGE - Lightweight "Slim" Production Build
 # ============================================================================
-# Uses 'slim' variant: Standard Debian Linux but stripped of build tools.
-# Much smaller than 'base' but keeps full binary compatibility (unlike Alpine).
 FROM node:24-bookworm-slim AS production
 LABEL stage="production"
 
 ENV NODE_ENV=production
 ENV PORT=5000
 
-# Install runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
     curl \
@@ -96,15 +85,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Note: The official Node image already creates a 'node' user (uid 1000)
-
-# Copy only production dependencies from staging
 COPY --from=staging --chown=node:node /app/node_modules ./node_modules
-
-# Copy application code
 COPY --chown=node:node . .
 
-# Remove unnecessary files (cleanup)
 RUN rm -rf \
     .git \
     .gitignore \

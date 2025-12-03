@@ -2,8 +2,6 @@ services:
   # ========================================================================
   # MongoDB Database Service
   # ========================================================================
-  # Uses MongoDB 8.0 (Latest Stable)
-  # Pinned version for stability; "mongo:latest" can be risky for DBs
   mongodb-dev:
     image: mongo:8.0
     container_name: mern-mongodb-dev
@@ -22,7 +20,6 @@ services:
       mern-dev-network:
         aliases:
           - mongodb-dev
-    # Modern healthcheck using mongosh (mongo shell is deprecated in v6+)
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
       interval: 10s
@@ -35,14 +32,13 @@ services:
         max-file: "3"
 
   # ========================================================================
-  # Redis Cache Service (NEW)
+  # Redis Cache Service
   # ========================================================================
   redis-dev:
     image: redis:latest
     container_name: mern-redis-dev
     hostname: redis-dev.local
     restart: unless-stopped
-    # Enable AOF persistence
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"
@@ -78,7 +74,6 @@ services:
     environment:
       NODE_ENV: development
       PORT: 5000
-      # Connection string updated for Mongo 8.0 & Authentication
       MONGODB_URI: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASSWORD:-dev_password}@mongodb-dev:27017/${MONGO_DB_NAME:-mern_dev_db}?authSource=admin
       REDIS_URL: redis://redis-dev:6379
       LOG_LEVEL: debug
@@ -88,11 +83,8 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      # Hot Reload: Bind mount source code
       - ./backend:/app
-      # Prevent node_modules sync issues (anonymous volume)
       - /app/node_modules
-      # Persist logs locally
       - ./backend/logs:/app/logs
     networks:
       mern-dev-network:
@@ -115,24 +107,21 @@ services:
       - backend-api-dev
     environment:
       NODE_ENV: development
-      # Points to backend service alias
-      REACT_APP_API_URL: http://backend-api-dev:5000
+      # When developing on the host browser, point the frontend bundle to localhost
+      # so the browser can reach the backend at http://localhost:5000.
+      REACT_APP_API_URL: http://localhost:5000
       REACT_APP_API_PREFIX: /api
     ports:
       - "3000:3000"
     volumes:
-      # Hot Reload: Bind mount source code
       - ./frontend:/app
-      # Prevent node_modules sync issues
       - /app/node_modules
-      # Ignore build folder in dev
       - /app/build
     networks:
       mern-dev-network:
         aliases:
           - frontend-web-dev
     healthcheck:
-      # Using curl (standard in Debian images) instead of wget
       test: curl -f http://localhost:3000 || exit 1
       interval: 30s
       timeout: 10s
@@ -143,8 +132,6 @@ services:
 # Named Volumes - Development
 # ============================================================================
 volumes:
-  # Simple named volumes are best for persistence. 
-  # Complex driver_opts (bind mounts inside volumes) are deprecated/fragile.
   mern-mongodb-dev-data:
     name: mern-mongodb-dev-data
   mern-mongodb-dev-config:
@@ -159,6 +146,4 @@ networks:
   mern-dev-network:
     driver: bridge
     name: mern-dev-network
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
+

@@ -1,1 +1,15 @@
+.git
+.gitignore
+.env.*
+.dockerignore
+Dockerfile
+docker-compose*.yaml
+README.md
+.eslintrc*
+.prettierrc*
+tests
+test
+*.test.js
+*.spec.js
+logs/*
 node_modules

@@ -1,9 +1,14 @@
 const path = require('path');
-const filename = path.join(__dirname, '../../logs/project.log');
+const { createSimpleLogger } = require('simple-node-logger');
 
-//you can change format according to you
-const log = require('simple-node-logger').createSimpleLogger( {
-    logFilePath:filename,
-    timestampFormat:'YYYY-MM-DD HH:mm:ss'}
-);
-module.exports = {log};
+// Define log file path
+const logFilePath = path.join(__dirname, '../../logs/project.log');
+
+// Create a simple logger instance
+const log = createSimpleLogger({
+  logFilePath: logFilePath,
+  timestampFormat: 'YYYY-MM-DD HH:mm:ss',
+  level: 'debug', // Set log level (optional)
+});
+
+module.exports = { log };

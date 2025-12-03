@@ -11,7 +11,8 @@
     "format": "prettier --write {**/,}*.js",
     "lint": "prettier --check {**/,}*.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "health": "curl -f http://localhost:5000/health || exit 1"
+    "health": "curl -f http://localhost:5000/health || exit 1",
+    "audit": "npm audit"
   },
   "author": "Syed Afzal",
   "license": "ISC",

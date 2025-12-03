@@ -29,8 +29,8 @@ FROM dependencies AS development
 LABEL stage="development"
 
 ENV NODE_ENV=development
-# Default to internal Docker network hostname (matches docker-compose)
-ENV REACT_APP_API_URL=http://backend-srv:5000
+# Match docker-compose service alias
+ENV REACT_APP_API_URL=http://backend-api-dev:5000
 
 # Copy entire project
 COPY . .
