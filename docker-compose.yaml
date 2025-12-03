@@ -1,10 +1,13 @@
 services:
   frontend:
+    container_name: mern-frontend
+    hostname: frontend-srv
+    image: mern/frontend-web:dev-latest
     build:
       context: frontend
       target: development
     ports:
-      - 3000:3000
+      - "3000:3000"
     stdin_open: true
     volumes:
       - ./frontend:/usr/src/app
@@ -16,6 +19,9 @@ services:
       - backend
 
   backend:
+    container_name: mern-backend
+    hostname: backend-srv
+    image: mern/backend-api:dev-latest
     restart: always
     build:
       context: backend
@@ -24,24 +30,62 @@ services:
       - ./backend:/usr/src/app
       - /usr/src/app/node_modules
     depends_on:
-      - mongo
+      mongo:
+        condition: service_started
+      redis:
+        condition: service_started
     networks:
       - express-mongo
       - react-express
-    expose: 
-      - 3000
+    expose:
+      - "5000"
+
   mongo:
+    container_name: mern-mongo
+    hostname: mongo-db
+    # Updated to 'mongo:8.0' (latest stable). Avoid using just 'latest' tag in production 
+    # to prevent surprise breaking changes in future major versions (e.g., v9).
+    image: mongo:8.0
     restart: always
-    image: mongo:4.2.0
     volumes:
       - mongo_data:/data/db
     networks:
       - express-mongo
     expose:
-      - 27017
+      - "27017"
+    # Optional: Add a healthcheck for Mongo (recommended for reliable startups)
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    container_name: mern-redis
+    hostname: redis-cache
+    image: redis:latest
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - express-mongo
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 networks:
   react-express:
+    name: mern-frontend-net
   express-mongo:
+    name: mern-backend-net
 
 volumes:
   mongo_data:
+    name: mern-mongo-volume
+  redis_data:
+    name: mern-redis-volume

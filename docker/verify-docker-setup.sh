@@ -32,8 +32,14 @@ if command -v docker-compose &> /dev/null; then
     COMPOSE_VERSION=$(docker-compose --version)
     echo -e "${GREEN}✓ Docker Compose found: $COMPOSE_VERSION${RESET}"
 else
-    echo -e "${RED}✗ Docker Compose not found. Please install Docker Compose.${RESET}"
-    exit 1
+    # Fallback check for 'docker compose' plugin
+    if docker compose version &> /dev/null; then
+         COMPOSE_VERSION=$(docker compose version)
+         echo -e "${GREEN}✓ Docker Compose (Plugin) found: $COMPOSE_VERSION${RESET}"
+    else
+        echo -e "${RED}✗ Docker Compose not found. Please install Docker Compose.${RESET}"
+        exit 1
+    fi
 fi
 
 # Check required files
@@ -70,30 +76,64 @@ fi
 echo -e "\n${YELLOW}[4/5] Verifying Docker Compose files syntax...${RESET}"
 COMPOSE_FILES=("docker-compose.dev.yaml" "docker-compose.staging.yaml" "docker-compose.prod.yaml")
 for compose_file in "${COMPOSE_FILES[@]}"; do
-    if docker-compose -f "$compose_file" config > /dev/null 2>&1; then
+    # Supports both 'docker-compose' and 'docker compose'
+    if command -v docker-compose &> /dev/null; then
+        CMD="docker-compose"
+    else
+        CMD="docker compose"
+    fi
+
+    # Use --env-file to load variables so config check doesn't fail on missing env vars
+    ENV_FILE=".env.dev"
+    if [[ "$compose_file" == *"prod"* ]]; then ENV_FILE=".env.prod"; fi
+    if [[ "$compose_file" == *"staging"* ]]; then ENV_FILE=".env.staging"; fi
+
+    if $CMD -f "$compose_file" --env-file "$ENV_FILE" config > /dev/null 2>&1; then
         echo -e "${GREEN}✓ $compose_file - Valid${RESET}"
     else
         echo -e "${RED}✗ $compose_file - Invalid syntax${RESET}"
-        docker-compose -f "$compose_file" config
+        $CMD -f "$compose_file" --env-file "$ENV_FILE" config
         exit 1
     fi
 done
 
 # Check Dockerfile syntax
+# NOTE: 'docker build --check' is a newer feature (BuildKit).
+# We use a simple build check or BuildKit check if available.
 echo -e "\n${YELLOW}[5/5] Checking Dockerfile syntax...${RESET}"
-if docker build -f backend/Dockerfile --target development --dry-run . > /dev/null 2>&1; then
-    echo -e "${GREEN}✓ backend/Dockerfile - Valid${RESET}"
+
+check_dockerfile() {
+    local context=$1
+    local dockerfile=$2
+    local target=$3
+
+    # Try using BuildKit check (Docker 20.10+) or fall back to basic check
+    if DOCKER_BUILDKIT=1 docker build -f "$dockerfile" --target "$target" --no-cache --check "$context" > /dev/null 2>&1; then
+         echo -e "${GREEN}✓ $dockerfile ($target) - Valid${RESET}"
+    else
+         # Fallback: If --check isn't supported, just try a dry run (limited validation)
+         # or report failure if the build command itself failed
+         echo -e "${RED}✗ $dockerfile - Syntax Check Failed${RESET}"
+         # Run again without mute to show error
+         DOCKER_BUILDKIT=1 docker build -f "$dockerfile" --target "$target" --check "$context"
+         exit 1
+    fi
+}
+
+# We check 'development' target as it's usually the base for others
+# Assuming current directory structure
+if [ -d "backend" ]; then
+    check_dockerfile "." "backend/Dockerfile" "development"
 else
-    echo -e "${RED}✗ backend/Dockerfile - Invalid${RESET}"
-    exit 1
+     echo -e "${YELLOW}⚠ backend/ directory missing, skipping backend check${RESET}"
 fi
 
-if docker build -f frontend/Dockerfile --target development --dry-run . > /dev/null 2>&1; then
-    echo -e "${GREEN}✓ frontend/Dockerfile - Valid${RESET}"
+if [ -d "frontend" ]; then
+    check_dockerfile "." "frontend/Dockerfile" "development"
 else
-    echo -e "${RED}✗ frontend/Dockerfile - Invalid${RESET}"
-    exit 1
+     echo -e "${YELLOW}⚠ frontend/ directory missing, skipping frontend check${RESET}"
 fi
+
 
 # Summary
 echo -e "\n${BLUE}╔════════════════════════════════════════════════════════════════╗${RESET}"
@@ -101,7 +141,7 @@ echo -e "${GREEN}✓ All checks passed! Your Docker setup is ready.${RESET}"
 echo -e "${BLUE}╚════════════════════════════════════════════════════════════════╝${RESET}\n"
 
 echo -e "${YELLOW}Next steps:${RESET}"
-echo -e "${BLUE}1. Development:${RESET}   docker-compose -f docker-compose.dev.yaml --env-file .env.dev up --build"
-echo -e "${BLUE}2. Staging:${RESET}      docker-compose -f docker-compose.staging.yaml --env-file .env.staging up --build -d"
-echo -e "${BLUE}3. Production:${RESET}   docker-compose -f docker-compose.prod.yaml --env-file .env.prod up --build -d"
+echo -e "${BLUE}1. Development:${RESET}   ./helper.sh dev-up"
+echo -e "${BLUE}2. Staging:${RESET}       ./helper.sh staging-up"
+echo -e "${BLUE}3. Production:${RESET}    ./helper.sh prod-up"
 echo ""

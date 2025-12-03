@@ -40,6 +40,10 @@ dev-mongodb-logs() {
     docker-compose -f docker-compose.dev.yaml logs -f mongodb-dev
 }
 
+dev-redis-logs() {
+    docker-compose -f docker-compose.dev.yaml logs -f redis-dev
+}
+
 dev-shell-backend() {
     docker-compose -f docker-compose.dev.yaml exec backend-api-dev sh
 }
@@ -50,6 +54,10 @@ dev-shell-frontend() {
 
 dev-shell-mongodb() {
     docker-compose -f docker-compose.dev.yaml exec mongodb-dev mongosh -u admin -p
+}
+
+dev-shell-redis() {
+    docker-compose -f docker-compose.dev.yaml exec redis-dev redis-cli
 }
 
 dev-prune() {
@@ -89,6 +97,10 @@ staging-mongodb-logs() {
     docker-compose -f docker-compose.staging.yaml logs -f mongodb-staging
 }
 
+staging-redis-logs() {
+    docker-compose -f docker-compose.staging.yaml logs -f redis-staging
+}
+
 staging-restart() {
     echo -e "${BLUE}Restarting Staging services...${NC}"
     docker-compose -f docker-compose.staging.yaml restart
@@ -124,6 +136,16 @@ prod-mongodb-logs() {
     docker-compose -f docker-compose.prod.yaml logs -f mongodb-prod
 }
 
+prod-redis-logs() {
+    docker-compose -f docker-compose.prod.yaml logs -f redis-prod
+}
+
+prod-shell-redis() {
+    # production often requires a password if configured
+    echo -e "${YELLOW}Connecting to Prod Redis (Requires Auth if configured)...${NC}"
+    docker-compose -f docker-compose.prod.yaml exec redis-prod redis-cli
+}
+
 prod-restart() {
     echo -e "${RED}Restarting Production services...${NC}"
     docker-compose -f docker-compose.prod.yaml restart
@@ -140,7 +162,8 @@ docker-ps() {
 
 docker-stats() {
     echo -e "${BLUE}MERN Docker container stats:${NC}"
-    docker stats --no-stream $(docker ps -q --filter "label=project=mern" 2>/dev/null) 2>/dev/null || docker stats
+    # Filter by common name patterns or show all if filter fails
+    docker stats --no-stream $(docker ps -q --filter "name=mern" 2>/dev/null) 2>/dev/null || docker stats
 }
 
 docker-clean() {
@@ -199,9 +222,11 @@ ${YELLOW}Development:${NC}
   dev-backend-logs    - View backend logs
   dev-frontend-logs   - View frontend logs
   dev-mongodb-logs    - View MongoDB logs
+  dev-redis-logs      - View Redis logs
   dev-shell-backend   - Open shell in backend container
   dev-shell-frontend  - Open shell in frontend container
   dev-shell-mongodb   - Open MongoDB shell
+  dev-shell-redis     - Open Redis CLI
   dev-prune           - Remove development containers and volumes
 
 ${YELLOW}Staging:${NC}
@@ -211,6 +236,7 @@ ${YELLOW}Staging:${NC}
   staging-backend-logs    - View backend logs
   staging-frontend-logs   - View frontend logs
   staging-mongodb-logs    - View MongoDB logs
+  staging-redis-logs      - View Redis logs
   staging-restart     - Restart staging services
 
 ${YELLOW}Production:${NC}
@@ -220,6 +246,8 @@ ${YELLOW}Production:${NC}
   prod-backend-logs   - View backend logs
   prod-frontend-logs  - View frontend logs
   prod-mongodb-logs   - View MongoDB logs
+  prod-redis-logs     - View Redis logs
+  prod-shell-redis    - Open Redis CLI (Production)
   prod-restart        - Restart production services
 
 ${YELLOW}Build & General:${NC}

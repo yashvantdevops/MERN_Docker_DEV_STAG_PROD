@@ -2,17 +2,10 @@ services:
   # ========================================================================
   # MongoDB Database Service
   # ========================================================================
-  
-
-# ============================================================================
-# MERN Stack Docker Compose - Development Environment
-# ============================================================================
-# Usage: docker-compose -f docker-compose.dev.yaml up --build
-# Services: MongoDB, Express Backend, React Frontend
-# Ports: MongoDB (27017), Backend (5000), Frontend (3000)
-# ============================================================================
+  # Uses MongoDB 8.0 (Latest Stable)
+  # Pinned version for stability; "mongo:latest" can be risky for DBs
   mongodb-dev:
-    image: mongo:7.0.4-alpine
+    image: mongo:8.0
     container_name: mern-mongodb-dev
     hostname: mongodb-dev.local
     restart: unless-stopped
@@ -23,16 +16,13 @@ services:
     ports:
       - "27017:27017"
     volumes:
-      # Named volume for persistent data
       - mern-mongodb-dev-data:/data/db
       - mern-mongodb-dev-config:/data/configdb
-      # Initialization script (optional)
-      # - ./backend/scripts/init-db.js:/docker-entrypoint-initdb.d/init.js
     networks:
       mern-dev-network:
         aliases:
           - mongodb-dev
-          - mongodb-dev.local
+    # Modern healthcheck using mongosh (mongo shell is deprecated in v6+)
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
       interval: 10s
@@ -45,6 +35,30 @@ services:
         max-file: "3"
 
   # ========================================================================
+  # Redis Cache Service (NEW)
+  # ========================================================================
+  redis-dev:
+    image: redis:latest
+    container_name: mern-redis-dev
+    hostname: redis-dev.local
+    restart: unless-stopped
+    # Enable AOF persistence
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - mern-redis-dev-data:/data
+    networks:
+      mern-dev-network:
+        aliases:
+          - redis-dev
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ========================================================================
   # Express Backend API Service
   # ========================================================================
   backend-api-dev:
@@ -52,8 +66,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: development
-      args:
-        NODE_ENV: development
     image: mern/backend-api:dev-latest
     container_name: mern-backend-api-dev
     hostname: backend-api-dev.local
@@ -61,10 +73,14 @@ services:
     depends_on:
       mongodb-dev:
         condition: service_healthy
+      redis-dev:
+        condition: service_healthy
     environment:
       NODE_ENV: development
       PORT: 5000
+      # Connection string updated for Mongo 8.0 & Authentication
       MONGODB_URI: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASSWORD:-dev_password}@mongodb-dev:27017/${MONGO_DB_NAME:-mern_dev_db}?authSource=admin
+      REDIS_URL: redis://redis-dev:6379
       LOG_LEVEL: debug
       LOG_DIR: ./logs
       CORS_ORIGIN: http://localhost:3000
@@ -72,29 +88,16 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      # Bind mount source code for development (hot reload)
+      # Hot Reload: Bind mount source code
       - ./backend:/app
-      # Named volume for node_modules to avoid sync issues
-      - mern-backend-dev-node_modules:/app/node_modules
-      # Named volume for logs
-      - mern-backend-dev-logs:/app/logs
+      # Prevent node_modules sync issues (anonymous volume)
+      - /app/node_modules
+      # Persist logs locally
+      - ./backend/logs:/app/logs
     networks:
       mern-dev-network:
         aliases:
           - backend-api-dev
-          - backend-api-dev.local
-          - backend-api
-    healthcheck:
-      test: curl -f http://localhost:5000/health || exit 1
-      interval: 30s
-      timeout: 10s
-      start_period: 15s
-      retries: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   # ========================================================================
   # React Frontend Service
@@ -104,8 +107,6 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: development
-      args:
-        NODE_ENV: development
     image: mern/frontend-web:dev-latest
     container_name: mern-frontend-web-dev
     hostname: frontend-web-dev.local
@@ -114,60 +115,42 @@ services:
       - backend-api-dev
     environment:
       NODE_ENV: development
+      # Points to backend service alias
       REACT_APP_API_URL: http://backend-api-dev:5000
       REACT_APP_API_PREFIX: /api
     ports:
       - "3000:3000"
     volumes:
-      # Bind mount source code for development (hot reload)
+      # Hot Reload: Bind mount source code
       - ./frontend:/app
-      # Named volume for node_modules to avoid sync issues
-      - mern-frontend-dev-node_modules:/app/node_modules
-      # Don't bind mount build folder during development
+      # Prevent node_modules sync issues
+      - /app/node_modules
+      # Ignore build folder in dev
       - /app/build
     networks:
       mern-dev-network:
         aliases:
           - frontend-web-dev
-          - frontend-web-dev.local
     healthcheck:
-      test: wget --quiet --tries=1 --spider http://localhost:3000 || exit 1
+      # Using curl (standard in Debian images) instead of wget
+      test: curl -f http://localhost:3000 || exit 1
       interval: 30s
       timeout: 10s
       start_period: 20s
       retries: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
 # ============================================================================
 # Named Volumes - Development
 # ============================================================================
 volumes:
+  # Simple named volumes are best for persistence. 
+  # Complex driver_opts (bind mounts inside volumes) are deprecated/fragile.
   mern-mongodb-dev-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./data/mongodb/dev
+    name: mern-mongodb-dev-data
   mern-mongodb-dev-config:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./data/mongodb/dev/config
-  mern-backend-dev-node_modules:
-    driver: local
-  mern-backend-dev-logs:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./backend/logs
-  mern-frontend-dev-node_modules:
-    driver: local
+    name: mern-mongodb-dev-config
+  mern-redis-dev-data:
+    name: mern-redis-dev-data
 
 # ============================================================================
 # Networks - Development
@@ -175,6 +158,7 @@ volumes:
 networks:
   mern-dev-network:
     driver: bridge
+    name: mern-dev-network
     ipam:
       config:
         - subnet: 172.20.0.0/16

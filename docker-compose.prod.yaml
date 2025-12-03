@@ -4,8 +4,7 @@ version: '3.9'
 # MERN Stack Docker Compose - Production Environment
 # ============================================================================
 # Usage: docker-compose -f docker-compose.prod.yaml up --build -d
-# Services: MongoDB, Express Backend, React Frontend with Nginx
-# Ports: MongoDB (27019), Backend (5002), Frontend (80/8443)
+# Services: MongoDB, Redis, Express Backend, React Frontend with Nginx
 # ============================================================================
 
 services:
@@ -13,7 +12,8 @@ services:
   # MongoDB Database Service - Production
   # ========================================================================
   mongodb-prod:
-    image: mongo:7.0.4-alpine
+    # Using official Debian-based Mongo 8.0 (Stable)
+    image: mongo:8.0
     container_name: mern-mongodb-prod
     hostname: mongodb-prod.local
     restart: always
@@ -24,15 +24,15 @@ services:
     ports:
       - "27019:27017"
     volumes:
-      # Named volume for persistent data
+      # Standard Named Volumes (Best Practice for Prod Persistence)
       - mern-mongodb-prod-data:/data/db
       - mern-mongodb-prod-config:/data/configdb
     networks:
       mern-prod-network:
         aliases:
           - mongodb-prod
-          - mongodb-prod.local
     healthcheck:
+      # Uses mongosh (modern shell)
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
       interval: 30s
       timeout: 10s
@@ -46,6 +46,30 @@ services:
       - no-new-privileges:true
 
   # ========================================================================
+  # Redis Cache Service - Production
+  # ========================================================================
+  redis-prod:
+    image: redis:latest
+    container_name: mern-redis-prod
+    hostname: redis-prod.local
+    restart: always
+    # Enable AOF (Append Only File) for data persistence in production
+    command: redis-server --appendonly yes
+    volumes:
+      - mern-redis-prod-data:/data
+    networks:
+      mern-prod-network:
+        aliases:
+          - redis-prod
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+
+  # ========================================================================
   # Express Backend API Service - Production
   # ========================================================================
   backend-api-prod:
@@ -53,8 +77,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: production
-      args:
-        NODE_ENV: production
     image: mern/backend-api:prod-latest
     container_name: mern-backend-api-prod
     hostname: backend-api-prod.local
@@ -62,10 +84,14 @@ services:
     depends_on:
       mongodb-prod:
         condition: service_healthy
+      redis-prod:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: 5000
+      # Connect to MongoDB & Redis using service aliases
       MONGODB_URI: mongodb://${MONGO_ROOT_USER:-prod_admin}:${MONGO_ROOT_PASSWORD:-change_me_production_password}@mongodb-prod:27017/${MONGO_DB_NAME:-mern_production_db}?authSource=admin
+      REDIS_URL: redis://redis-prod:6379
       LOG_LEVEL: warn
       LOG_DIR: ./logs
       CORS_ORIGIN: https://yourdomain.com
@@ -73,15 +99,12 @@ services:
     ports:
       - "5002:5000"
     volumes:
-      # Named volumes for application (read-only)
-      - mern-backend-prod-node_modules:/app/node_modules:ro
+      # Logs persistence
       - mern-backend-prod-logs:/app/logs
     networks:
       mern-prod-network:
         aliases:
           - backend-api-prod
-          - backend-api-prod.local
-          - backend-api
     healthcheck:
       test: curl -f http://localhost:5000/health || exit 1
       interval: 60s
@@ -95,11 +118,11 @@ services:
         max-file: "10"
     security_opt:
       - no-new-privileges:true
+    # Drop all capabilities except net binding
     cap_drop:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
-    read_only_rootfs: false
 
   # ========================================================================
   # React Frontend Service - Production with Nginx
@@ -109,8 +132,6 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: production
-      args:
-        NODE_ENV: production
     image: mern/frontend-web:prod-latest
     container_name: mern-frontend-web-prod
     hostname: frontend-web-prod.local
@@ -124,17 +145,22 @@ services:
     ports:
       - "80:8080"
       - "8443:8080"
+    # Security Hardening for Nginx
+    read_only: true
     volumes:
-      # Named volumes for nginx cache and logs
-      - mern-frontend-prod-cache:/var/cache/nginx:ro
+      # Mount writable volumes for necessary Nginx paths (since rootfs is read-only)
+      - mern-frontend-prod-cache:/var/cache/nginx
       - mern-frontend-prod-logs:/var/log/nginx
+      - mern-frontend-prod-pid:/var/run
+      # Optional: Custom Nginx config mount
+      # - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
       mern-prod-network:
         aliases:
           - frontend-web-prod
-          - frontend-web-prod.local
     healthcheck:
-      test: wget --quiet --tries=1 --spider http://localhost:8080 || exit 1
+      # Using curl (standard in Debian images)
+      test: curl -f http://localhost:8080 || exit 1
       interval: 60s
       timeout: 10s
       start_period: 15s
@@ -148,42 +174,30 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-      - NET_RAW
     cap_add:
       - NET_BIND_SERVICE
+      - CHOWN
+      - SETGID
+      - SETUID
 
 # ============================================================================
 # Named Volumes - Production
 # ============================================================================
 volumes:
   mern-mongodb-prod-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./data/mongodb/production
+    name: mern-mongodb-prod-data
   mern-mongodb-prod-config:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./data/mongodb/production/config
-  mern-backend-prod-node_modules:
-    driver: local
+    name: mern-mongodb-prod-config
+  mern-redis-prod-data:
+    name: mern-redis-prod-data
   mern-backend-prod-logs:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./backend/logs/production
+    name: mern-backend-prod-logs
   mern-frontend-prod-cache:
-    driver: local
+    name: mern-frontend-prod-cache
   mern-frontend-prod-logs:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./frontend/logs/production
+    name: mern-frontend-prod-logs
+  mern-frontend-prod-pid:
+    name: mern-frontend-prod-pid
 
 # ============================================================================
 # Networks - Production
@@ -191,6 +205,7 @@ volumes:
 networks:
   mern-prod-network:
     driver: bridge
+    name: mern-prod-network
     ipam:
       config:
         - subnet: 172.22.0.0/16

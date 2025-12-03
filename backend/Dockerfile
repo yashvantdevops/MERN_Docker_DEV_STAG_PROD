@@ -1,20 +1,23 @@
 # syntax=docker/dockerfile:1.4
 # Multi-stage Dockerfile for Node.js Backend - MERN Stack
-# Supports development, staging, and production builds
+# Uses standard Debian-based images ("Core" Linux) instead of Alpine
 
 # ============================================================================
-# BASE STAGE - Common dependencies
+# BASE STAGE - Common dependencies (Debian based)
 # ============================================================================
-FROM node:18.19-alpine3.18 AS base
+# Using 'node:24-bookworm' (Debian 12) for a stable, standard "core" environment
+FROM node:24-bookworm AS base
 LABEL maintainer="MERN Stack Team"
-LABEL version="1.0"
-LABEL description="Express.js Backend for MERN Stack"
+LABEL version="2.1-core"
+LABEL description="Express.js Backend - Standard Debian Build"
 
-# Install security updates and essential packages
-RUN apk add --no-cache \
+# Install essential packages using apt-get (Debian package manager)
+# dumb-init is critical for proper signal handling in PID 1
+RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
     curl \
-    && rm -rf /var/cache/apk/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -39,7 +42,7 @@ ENV PORT=5000
 # Copy entire project
 COPY . .
 
-# Install nodemon globally for development
+# Install nodemon globally
 RUN npm install -g nodemon
 
 EXPOSE 5000
@@ -59,7 +62,7 @@ ENV NODE_ENV=staging
 ENV PORT=5000
 
 # Install production dependencies only
-RUN npm ci --only=production --verbose
+RUN npm ci --omit=dev --verbose
 
 # Copy application code
 COPY . .
@@ -74,34 +77,34 @@ USER node
 CMD ["node", "server.js"]
 
 # ============================================================================
-# PRODUCTION STAGE - Lightweight production build
+# PRODUCTION STAGE - Lightweight "Slim" Production Build
 # ============================================================================
-FROM alpine:3.18 AS production
+# Uses 'slim' variant: Standard Debian Linux but stripped of build tools.
+# Much smaller than 'base' but keeps full binary compatibility (unlike Alpine).
+FROM node:24-bookworm-slim AS production
 LABEL stage="production"
 
 ENV NODE_ENV=production
 ENV PORT=5000
 
-# Install Node.js runtime and dumb-init only
-RUN apk add --no-cache \
-    nodejs=18.19.0-r0 \
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
     curl \
-    && rm -rf /var/cache/apk/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+# Note: The official Node image already creates a 'node' user (uid 1000)
 
 # Copy only production dependencies from staging
-COPY --from=staging --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --from=staging --chown=node:node /app/node_modules ./node_modules
 
 # Copy application code
-COPY --chown=nodejs:nodejs . .
+COPY --chown=node:node . .
 
-# Remove unnecessary files
+# Remove unnecessary files (cleanup)
 RUN rm -rf \
     .git \
     .gitignore \
@@ -112,12 +115,15 @@ RUN rm -rf \
     README.md \
     .eslintrc* \
     .prettierrc* \
-    logs/* \
-    && chown -R nodejs:nodejs /app
+    tests \
+    test \
+    *.test.js \
+    *.spec.js \
+    logs/*
 
 EXPOSE 5000
 
-USER nodejs
+USER node
 
 HEALTHCHECK --interval=60s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:5000/health || exit 1
